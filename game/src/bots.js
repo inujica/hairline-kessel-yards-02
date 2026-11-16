@@ -9,6 +9,13 @@ import { bodyBoxes } from './combat.js';
 
 const EYE = 1.58;
 
+// A dark rifle against a lighter uniform is what makes a distant bot read as armed, which is how a
+// player decides whether to shoot. Sharing the vest's `plate` material dissolved the weapon into the
+// body at range and left nothing but a coloured slab on the skyline.
+const GUN_MATERIAL = new THREE.MeshStandardMaterial({
+  color: new THREE.Color('#1b1c1f'), roughness: 0.55, metalness: 0.35,
+});
+
 function buildBody(team, name) {
   const group = new THREE.Group();
   const cloth = new THREE.MeshStandardMaterial({
@@ -34,8 +41,8 @@ function buildBody(team, name) {
   armL.position.set(-0.36, 1.16, -0.04);
   const armR = armL.clone();
   armR.position.x = 0.36;
-  const gun = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.12, 0.62), plate);
-  gun.position.set(0.2, 1.12, -0.34);
+  const gun = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.14, 0.7), GUN_MATERIAL);
+  gun.position.set(0.2, 1.12, -0.4);
   // A pack and two shoulder pads: at 40 metres the silhouette is what tells you whose back you
   // are looking at, so each team gets a different outline, not just a different tint.
   const pack = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.4, 0.2), plate);

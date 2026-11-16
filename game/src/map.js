@@ -86,7 +86,38 @@ function concreteSurface(base, seed) {
       context.lineTo(size, y);
       context.stroke();
     }
-    grain(context, size, seed + 7, 22);
+    // Stains and cracks are what make a poured wall read as a wall at screenshot distance: the
+    // seams alone leave it as noise, so a patch of damp blotches and a few hairline cracks give the
+    // surface a scale the eye can actually measure.
+    // Stains are seasoning, not camouflage: past a certain density the surface stops reading as a
+    // material and starts reading as noise, so the patch count and the alpha both stay restrained.
+    for (let index = 0; index < 14; index += 1) {
+      const x = random() * size;
+      const y = random() * size;
+      const radiusX = 6 + random() * 26;
+      const radiusY = 4 + random() * 18;
+      context.fillStyle = `rgba(60,38,22,${0.06 + random() * 0.07})`;
+      context.beginPath();
+      context.ellipse(x, y, radiusX, radiusY, random() * Math.PI, 0, Math.PI * 2);
+      context.fill();
+    }
+    // Cracks: short polyline runs, never straight, so they read as settlement rather than as rules.
+    context.strokeStyle = 'rgba(30,20,14,0.35)';
+    context.lineWidth = 1;
+    for (let index = 0; index < 14; index += 1) {
+      let x = random() * size;
+      let y = random() * size;
+      const segments = 4 + Math.floor(random() * 4);
+      context.beginPath();
+      context.moveTo(x, y);
+      for (let segment = 0; segment < segments; segment += 1) {
+        x += (random() - 0.5) * 34;
+        y += (random() - 0.5) * 34;
+        context.lineTo(x, y);
+      }
+      context.stroke();
+    }
+    grain(context, size, seed + 7, 26);
   });
 }
 
@@ -100,8 +131,9 @@ function plankSurface(base, seed) {
       const y = (size / planks) * index;
       context.fillStyle = `rgba(0,0,0,${0.05 + random() * 0.1})`;
       context.fillRect(0, y, size, size / planks - 1);
-      context.strokeStyle = 'rgba(0,0,0,0.3)';
-      context.lineWidth = 1;
+      // Deeper seams give the crates visible plank structure rather than a flat brown box.
+      context.strokeStyle = 'rgba(0,0,0,0.45)';
+      context.lineWidth = 2;
       context.beginPath();
       context.moveTo(0, y);
       context.lineTo(size, y);
@@ -116,7 +148,7 @@ function plankSurface(base, seed) {
         context.stroke();
       }
     }
-    grain(context, size, seed + 11, 18);
+    grain(context, size, seed + 11, 30);
   });
 }
 
@@ -259,6 +291,321 @@ function lamp(scene, x, y, z, intensity, distance) {
   return light;
 }
 
+// ---------------------------------------------------------------- yard clutter
+// Set dressing, not cover. The clutter is deliberately non-colliding so it changes what the eye
+// sees without changing what the player can walk through: it fills the dead floor along both lanes
+// and around both plant sites, so no sightline ends on bare ground, and it never touches the
+// collider list the bodies slide against or the nav graph the bots walk. Every position is drawn
+// from a seeded stream, so the yard is dressed identically on every run.
+function yardClutter(scene, colliders) {
+  // colliders is accepted for symmetry with the other prop builders and never written to: nothing
+  // below may push into it, which is the whole point of dressing.
+  const random = seededNoise(9157);
+  const timber = new THREE.MeshStandardMaterial({
+    map: plankSurface(MATERIALS.crate, 71), roughness: 0.8, metalness: 0.03,
+  });
+  const tank = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(MATERIALS.tank), roughness: 0.46, metalness: 0.58,
+  });
+  const steel = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(MATERIALS.metal), roughness: 0.54, metalness: 0.5,
+  });
+
+  const prop = (geometry, material, x, y, z, rx, ry, rz) => {
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.set(x, y, z);
+    mesh.rotation.set(rx ?? 0, ry ?? 0, rz ?? 0);
+    // The same shadow flags the crates use, so the clutter sits in the same light as the map.
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+    return mesh;
+  };
+  const jitter = (span) => (random() - 0.5) * span;
+
+  // Anchors hug the walls of both lanes and ring both sites. They are placed by hand against the
+  // known geometry; only the small offsets and yaws come from the seeded stream.
+  const anchors = [
+    // Long lane, down the west corridor, alternating wall to wall.
+    { x: -23.3, z: 18, kind: 'pallets' },
+    { x: -16.7, z: 14, kind: 'drums' },
+    { x: -23.4, z: 8, kind: 'pipes', axis: 'z' },
+    { x: -16.6, z: 0, kind: 'spool' },
+    { x: -23.3, z: -6, kind: 'planks' },
+    { x: -16.7, z: -16, kind: 'drums' },
+    { x: -20, z: 30, kind: 'pallets' },
+    // Short lane, mirrored.
+    { x: 23.3, z: 18, kind: 'pallets' },
+    { x: 16.7, z: 14, kind: 'drums' },
+    { x: 23.4, z: 8, kind: 'pipes', axis: 'z' },
+    { x: 16.6, z: 0, kind: 'spool' },
+    { x: 23.3, z: -6, kind: 'planks' },
+    { x: 16.7, z: -16, kind: 'drums' },
+    { x: 20, z: 30, kind: 'pallets' },
+    // Site A: the tank yard, dressed around the big drums and the crate stack.
+    { x: -38.5, z: -43, kind: 'pallets' },
+    { x: -37.5, z: -48.9, kind: 'pipes', axis: 'x' },
+    { x: -24.5, z: -47, kind: 'drums' },
+    { x: -44, z: -35, kind: 'spool' },
+    { x: -33, z: -29.5, kind: 'planks' },
+    { x: -26, z: -29, kind: 'drums' },
+    // Site B: the freight house, mirrored.
+    { x: 38.5, z: -43, kind: 'pallets' },
+    { x: 37.5, z: -48.9, kind: 'pipes', axis: 'x' },
+    { x: 24.5, z: -47, kind: 'drums' },
+    { x: 44, z: -35, kind: 'spool' },
+    { x: 33, z: -29.5, kind: 'planks' },
+    { x: 26, z: -29, kind: 'drums' },
+    // Spawn apron, so the approach is not an empty apron.
+    { x: -34, z: 44, kind: 'drums' },
+    { x: 34, z: 44, kind: 'pallets' },
+  ];
+
+  // One builder per kind, so the spawn cluster below is dressed by exactly the same rules and out
+  // of exactly the same materials as the anchors: same geometry, same shadow flags, and every
+  // offset and yaw drawn from the seeded stream it is handed.
+  const dress = (kind, x, z, yaw, jitterFn, randomFn, axis) => {
+    if (kind === 'pallets') {
+      // A pallet stack: three thin boards, each turned a little, the classic depot floor pile.
+      for (let layer = 0; layer < 3; layer += 1) {
+        prop(
+          new THREE.BoxGeometry(1.05, 0.09, 0.85),
+          timber,
+          x + jitterFn(0.12), 0.045 + layer * 0.1, z + jitterFn(0.12),
+          0, yaw + layer * 0.22 + jitterFn(0.2), 0,
+        );
+      }
+    } else if (kind === 'drums') {
+      // Oil drums: two standing cylinders, one nudged off the other.
+      prop(
+        new THREE.CylinderGeometry(0.32, 0.32, 0.9, 12),
+        tank,
+        x, 0.45, z,
+        0, yaw, 0,
+      );
+      prop(
+        new THREE.CylinderGeometry(0.32, 0.32, 0.9, 12),
+        tank,
+        x + jitterFn(0.85), 0.45, z + jitterFn(0.85),
+        0, yaw + 0.6, 0,
+      );
+    } else if (kind === 'spool') {
+      // A cable spool: the drum lying on its side, with a cheek at each end.
+      const roll = 0.5 + randomFn() * 0.2;
+      prop(
+        new THREE.CylinderGeometry(0.62, 0.62, roll, 14),
+        timber,
+        x, 0.62, z,
+        0, yaw, Math.PI / 2,
+      );
+      prop(new THREE.BoxGeometry(0.07, 1.28, 1.28), timber, x - roll / 2 - 0.03, 0.62, z, 0, yaw, 0);
+      prop(new THREE.BoxGeometry(0.07, 1.28, 1.28), timber, x + roll / 2 + 0.03, 0.62, z, 0, yaw, 0);
+    } else if (kind === 'pipes') {
+      // A low pipe run along the base of the wall: two long thin boxes, one on top of the other.
+      const long = axis === 'z';
+      for (let pipe = 0; pipe < 2; pipe += 1) {
+        prop(
+          long ? new THREE.BoxGeometry(0.16, 0.16, 2.9) : new THREE.BoxGeometry(2.9, 0.16, 0.16),
+          steel,
+          x + (long ? pipe * 0.26 : 0), 0.1 + pipe * 0.18, z + (long ? 0 : pipe * 0.26),
+          0, 0, 0,
+        );
+      }
+    } else {
+      // A few loose planks, dropped flat and slightly out of square.
+      for (let plank = 0; plank < 3; plank += 1) {
+        prop(
+          new THREE.BoxGeometry(1.9, 0.07, 0.24),
+          timber,
+          x + jitterFn(0.5), 0.04 + plank * 0.08, z + jitterFn(0.5),
+          0, yaw + plank * 0.5, 0,
+        );
+      }
+    }
+  };
+
+  for (let index = 0; index < anchors.length; index += 1) {
+    const anchor = anchors[index];
+    const x = anchor.x + jitter(0.5);
+    const z = anchor.z + jitter(0.5);
+    const yaw = random() * Math.PI * 2;
+    dress(anchor.kind, x, z, yaw, jitter, random, anchor.axis);
+  }
+
+  // ---------------------------------------------------------------- spawn apron cluster
+  // The spawn needs dressing too, because it is the first thing the player and a screenshot see:
+  // the start screen camera stands on this apron and the ground under it was bare. So the apron
+  // gets a seeded cluster of its own — pallet stacks, oil drums and a couple of cable spools in the
+  // same materials, with the same shadow flags as every other prop and, like all of this dressing,
+  // never pushed into the collider list.
+  const apronRandom = seededNoise(3313);
+  const apronJitter = (span) => (apronRandom() - 0.5) * span;
+  const apronAnchors = [
+    { x: -6.3, z: 38.4, kind: 'pallets' },
+    { x: 6.5, z: 39.2, kind: 'pallets' },
+    { x: -5.7, z: 46.6, kind: 'pallets' },
+    { x: 5.9, z: 47.1, kind: 'pallets' },
+    { x: -2.7, z: 35.2, kind: 'drums' },
+    { x: 3.1, z: 36.1, kind: 'drums' },
+    { x: -7.5, z: 42.6, kind: 'drums' },
+    { x: 7.3, z: 43.2, kind: 'drums' },
+    { x: -3.4, z: 40.8, kind: 'spool' },
+    { x: 3.8, z: 45.4, kind: 'spool' },
+  ];
+
+  for (let index = 0; index < apronAnchors.length; index += 1) {
+    const anchor = apronAnchors[index];
+    const x = anchor.x + apronJitter(0.35);
+    const z = anchor.z + apronJitter(0.35);
+    const yaw = apronRandom() * Math.PI * 2;
+    dress(anchor.kind, x, z, yaw, apronJitter, apronRandom, anchor.axis);
+  }
+}
+
+// ---------------------------------------------------------------- sky
+// A gradient sky is what makes distance read as distance: with a real dome overhead the fog on the
+// far walls has something to be haze against, and the eye gets a horizon to measure the yard by
+// instead of a flat slab of background colour.
+function skyDome(scene) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 512;
+  const context = canvas.getContext('2d');
+
+  // Dusk, zenith to horizon: indigo, deep rose, brick red, then the hot band the sun is going down
+  // in. The stops are packed into the upper half of the canvas because the upper half of the sphere
+  // is the only part a player standing on the ground ever sees.
+  const gradient = context.createLinearGradient(0, 0, 0, 512);
+  gradient.addColorStop(0, '#2a1b2e');
+  gradient.addColorStop(0.28, '#7a3550');
+  gradient.addColorStop(0.44, '#c95f3a');
+  gradient.addColorStop(0.56, '#f2a35c');
+  gradient.addColorStop(1, '#f2a35c');
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, 512, 512);
+
+  // One soft sun disc sitting low, wide enough to bloom into the haze around it rather than read as
+  // a cut-out circle.
+  const sunY = 512 * 0.62;
+  const glow = context.createRadialGradient(256, sunY, 0, 256, sunY, 512 * 0.42);
+  glow.addColorStop(0, 'rgba(255, 217, 160, 0.95)');
+  glow.addColorStop(0.35, 'rgba(255, 217, 160, 0.34)');
+  glow.addColorStop(1, 'rgba(255, 217, 160, 0)');
+  context.fillStyle = glow;
+  context.fillRect(0, 0, 512, 512);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+
+  const dome = new THREE.Mesh(
+    new THREE.SphereGeometry(300, 32, 24),
+    new THREE.MeshBasicMaterial({
+      map: texture,
+      side: THREE.BackSide,
+      depthWrite: false,
+      fog: false,
+    }),
+  );
+  dome.renderOrder = -1;
+  dome.frustumCulled = false;
+  scene.add(dome);
+  return dome;
+}
+
+// ---------------------------------------------------------------- ground haze
+// Layered transparent planes are the cheap way to fake volumetric dust at dusk: three flat sheets
+// of warm haze stacked at shin, chest and head height give the air volume, so the yard reads as a
+// space full of dusk air instead of as geometry floating in a vacuum. None of them write depth, so
+// they tint whatever is behind them without cutting a hole in the world.
+function groundHaze(scene) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const context = canvas.getContext('2d');
+  // Soft radial falloff: dense in the middle, fully gone at the edge, so the plane has no border.
+  const gradient = context.createRadialGradient(128, 128, 0, 128, 128, 128);
+  gradient.addColorStop(0, 'rgba(240,190,140,0.30)');
+  gradient.addColorStop(1, 'rgba(240,190,140,0)');
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, 256, 256);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+
+  // Three heights, three densities: the low sheet is the thickest, the high one only a stain.
+  const layers = [
+    { height: 0.9, opacity: 0.42 },
+    { height: 2.2, opacity: 0.3 },
+    { height: 3.6, opacity: 0.2 },
+  ];
+  for (let index = 0; index < layers.length; index += 1) {
+    const layer = layers[index];
+    const plane = new THREE.Mesh(
+      new THREE.PlaneGeometry(190, 190),
+      new THREE.MeshBasicMaterial({
+        map: texture,
+        transparent: true,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        opacity: layer.opacity,
+      }),
+    );
+    plane.rotation.x = -Math.PI / 2;
+    plane.position.y = layer.height;
+    scene.add(plane);
+  }
+}
+
+// ---------------------------------------------------------------- signage
+// The signage is navigation, not decoration: it mirrors the minimap's site letters, so a player who
+// reads "SITE A — TANK YARD" over the plate knows which site they are standing on without looking
+// away at the HUD. Painted plate, not a floating UI label: dark enamel, amber rule, cream letters.
+function signPlate(text, width, height) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 128;
+  const context = canvas.getContext('2d');
+
+  // Plate and its amber border, inset so the stroke is never clipped by the texture edge.
+  context.fillStyle = '#241a14';
+  context.fillRect(0, 0, 512, 128);
+  context.strokeStyle = MATERIALS.accent ?? PALETTE.accent;
+  context.lineWidth = 6;
+  context.strokeRect(3, 3, 506, 122);
+
+  // Fit the type to the plate: measure the whole string first, shrink the point size until it
+  // clears the border, then draw it glyph by glyph so the tracking is even.
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  const tracking = 4;
+  const glyphs = [...text];
+  const measure = (size) => {
+    context.font = `bold ${size}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    const widths = glyphs.map((glyph) => context.measureText(glyph).width);
+    return { widths, total: widths.reduce((sum, value) => sum + value, 0) + tracking * (glyphs.length - 1) };
+  };
+  let size = 56;
+  let metrics = measure(size);
+  while (metrics.total > 460 && size > 18) {
+    size -= 2;
+    metrics = measure(size);
+  }
+  context.fillStyle = '#f4e2c0';
+  let cursor = 256 - metrics.total / 2;
+  for (let index = 0; index < glyphs.length; index += 1) {
+    context.fillText(glyphs[index], cursor + metrics.widths[index] / 2, 68);
+    cursor += metrics.widths[index] + tracking;
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(width, height),
+    new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide }),
+  );
+  return mesh;
+}
+
 // ---------------------------------------------------------------- the map
 export function createMap(scene) {
   const colliders = [];
@@ -373,14 +720,34 @@ export function createMap(scene) {
     scene.add(ring);
   }
 
+  // Signage over the two sites, read from the defender strip and from mid. Each plate faces +z,
+  // which is the direction the attackers arrive from, so the yard names itself on the approach.
+  const yardSign = signPlate('KESSEL YARDS', 9, 1.6);
+  yardSign.position.set(-31, 4.6, -30.6);
+  yardSign.rotation.y = 0; // a plane already faces +z; stated so the facing is not an accident
+  scene.add(yardSign);
+  const siteASign = signPlate('SITE A — TANK YARD', 8, 1.1);
+  siteASign.position.set(-31, 3.4, -30.6);
+  scene.add(siteASign);
+  const siteBSign = signPlate('FREIGHT HOUSE', 8, 1.5);
+  siteBSign.position.set(31, 4.4, -30.6);
+  siteBSign.rotation.y = 0; // same facing, mirrored across the corridor
+  scene.add(siteBSign);
+
   // Lights: a low warm sun through the depot haze, a cold fill so the lanes do not go black, and
-  // lamps that pool at the two sites and under the mid roof.
-  scene.fog = new THREE.Fog(new THREE.Color('#2b3440'), 34, 132);
-  const ambient = new THREE.AmbientLight(new THREE.Color('#64758a'), 0.34);
+  // lamps that pool at the two sites and under the mid roof. The sun sits low so long shadows
+  // rake across the lanes and the walls catch light on one face and go cool on the other.
+  skyDome(scene);
+  // The haze starts close on purpose: it is what hides the map's edges and makes the far wall
+  // dissolve into the sky instead of ending on a hard line. Saturated against the sky's horizon
+  // colour, so the fog reads as dusk air rather than as a grey veil.
+  scene.fog = new THREE.Fog(new THREE.Color('#e0a06a'), 14, 104);
+  groundHaze(scene);
+  const ambient = new THREE.AmbientLight(new THREE.Color('#ffb877'), 0.5);
   scene.add(ambient);
-  const hemi = new THREE.HemisphereLight(new THREE.Color('#9db2c6'), new THREE.Color('#333c46'), 0.62);
+  const hemi = new THREE.HemisphereLight(new THREE.Color('#ffd9a8'), new THREE.Color('#6b4a34'), 0.85);
   scene.add(hemi);
-  const sun = new THREE.DirectionalLight(new THREE.Color('#ffd9a6'), 3.3);
+  const sun = new THREE.DirectionalLight(new THREE.Color('#ffb066'), 3.9);
   sun.position.set(-38, 46, 30);
   sun.castShadow = true;
   sun.shadow.mapSize.set(3072, 3072);
@@ -389,10 +756,13 @@ export function createMap(scene) {
   sun.shadow.camera.top = 70;
   sun.shadow.camera.bottom = -70;
   sun.shadow.camera.far = 190;
-  sun.shadow.bias = -0.0004;
-  sun.shadow.normalBias = 0.02;
+  // The bias is tuned against the walkway beams: with the old values the covered walkway banded and
+  // the acne crawled as the camera moved, and a shadow that crawls reads as a bug rather than as
+  // lighting. Map size and frustum stay put; only the bias moves.
+  sun.shadow.bias = -0.0009;
+  sun.shadow.normalBias = 0.06;
   scene.add(sun);
-  const fill = new THREE.DirectionalLight(new THREE.Color('#7d99b8'), 0.5);
+  const fill = new THREE.DirectionalLight(new THREE.Color('#8fa8c4'), 0.35);
   fill.position.set(30, 26, -40);
   scene.add(fill);
   lamp(scene, siteA.x, 3.6, siteA.z, 44, 34);
@@ -401,6 +771,10 @@ export function createMap(scene) {
   lamp(scene, -31, 3.2, 12, 18, 24);
   lamp(scene, 31, 3.2, 12, 18, 24);
   lamp(scene, 0, 4.2, -24, 20, 24);
+
+  // Dressing goes in last, after every solid has been placed and before the nav graph is built, so
+  // the bots are routing around the real cover and not around a pallet.
+  yardClutter(scene, colliders);
 
   // ---------------------------------------------------------------- nav graph
   // Waypoints are placed by hand where a person would walk; the edges between them are not, they

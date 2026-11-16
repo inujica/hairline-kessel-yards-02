@@ -6,13 +6,20 @@ import * as THREE from 'three';
 import { MATERIALS, PALETTE } from './palette.js';
 import { WEAPONS, GEAR } from './config.js';
 
-// The rifle is deliberately dark and the glove deliberately pale: a tan hand on a tan rifle reads as
-// another piece of the rifle, which is exactly what a view model must not do.
-const SKIN = new THREE.MeshStandardMaterial({ color: new THREE.Color('#39424c'), roughness: 0.5, metalness: 0.55 });
-const GRIP = new THREE.MeshStandardMaterial({ color: new THREE.Color('#5a4a38'), roughness: 0.82, metalness: 0.04 });
+// The rifle is deliberately dark and cool: a cool grey-brown body, not a tan one, so the weapon never
+// competes with the thing holding it. A tan hand on a tan rifle reads as another piece of the rifle,
+// which is exactly what a view model must not do.
+const SKIN = new THREE.MeshStandardMaterial({ color: new THREE.Color('#3a352f'), roughness: 0.5, metalness: 0.55 });
+const GRIP = new THREE.MeshStandardMaterial({ color: new THREE.Color('#4a4038'), roughness: 0.82, metalness: 0.04 });
 const DARK = new THREE.MeshStandardMaterial({ color: new THREE.Color('#232930'), roughness: 0.58, metalness: 0.4 });
-const GLOVE = new THREE.MeshStandardMaterial({ color: new THREE.Color('#b8905e'), roughness: 0.97, metalness: 0.01 });
+const GLOVE = new THREE.MeshStandardMaterial({ color: new THREE.Color('#8f5c33'), roughness: 0.97, metalness: 0.01 });
 const CUFF = new THREE.MeshStandardMaterial({ color: new THREE.Color('#4a5560'), roughness: 0.92, metalness: 0.03 });
+// Bare forearms and the glove over the hand: hands are what make a view model read as held rather
+// than hovering. The hands are the warmest thing on screen on purpose, so they read against the
+// weapon instead of dissolving into it: a deep warm brown skin, and a near-black glove that gives
+// the fingers a hard silhouette against the receiver.
+const SKIN_TONE = new THREE.MeshStandardMaterial({ color: new THREE.Color('#a9673f'), roughness: 0.86, metalness: 0.02 });
+const DARK_GLOVE = new THREE.MeshStandardMaterial({ color: new THREE.Color('#1d1a17'), roughness: 0.9, metalness: 0.05 });
 
 function piece(parent, w, h, d, x, y, z, material) {
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
@@ -30,9 +37,16 @@ function piece(parent, w, h, d, x, y, z, material) {
 // separate fingers wrapped over the near side, and a forearm running back to the bottom corner of
 // the frame. The trigger hand is mostly a fist and a forearm, which is all a camera at this angle
 // would ever see of it.
+// Low-poly hands have to be overscaled to read at all, because a realistically sized hand
+// disappears at this resolution: at gameplay distance a true-scale palm is a few pixels of the
+// same brown as the receiver. Width and height are blown up here and the z lengths are left alone,
+// so the hands and forearms get bigger on screen without growing along the weapon or leaving the
+// handguard and the grip they are wrapped around.
+const HAND_SCALE = 1.5;
+
 function addHands(group, foreZ, gripZ) {
   const add = (w, h, d, x, y, z, material, rx, ry, rz) => {
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w * HAND_SCALE, h * HAND_SCALE, d), material);
     mesh.position.set(x, y, z);
     mesh.rotation.set(rx ?? 0, ry ?? 0, rz ?? 0);
     group.add(mesh);
@@ -59,6 +73,17 @@ function addHands(group, foreZ, gripZ) {
   }
   add(0.14, 0.14, 0.28, 0.05, -0.16, gripZ + 0.18, CUFF, 0.5, -0.1, -0.06);
   add(0.155, 0.155, 0.3, 0.1, -0.25, gripZ + 0.4, CUFF, 0.55, -0.16, -0.08);
+
+  // Two bare forearms, one per side, each a pair of tapered boxes in warm skin with the dark glove
+  // sitting at the far end where the wrist meets the hand: the left one runs forward under the
+  // fore-end, the right one comes up behind the trigger guard. They are children of the weapon
+  // group, so they inherit its bob, sway and recoil kick for free instead of needing their own.
+  add(0.135, 0.135, 0.085, -0.03, -0.13, foreZ - 0.02, DARK_GLOVE, 0.26, 0.18, 0.04);
+  add(0.115, 0.115, 0.3, -0.02, -0.175, foreZ + 0.17, SKIN_TONE, 0.3, 0.16, 0.05);
+  add(0.128, 0.128, 0.32, -0.06, -0.25, foreZ + 0.44, SKIN_TONE, 0.34, 0.22, 0.07);
+  add(0.14, 0.14, 0.085, 0.02, -0.115, gripZ - 0.02, DARK_GLOVE, 0.44, -0.1, -0.05);
+  add(0.12, 0.12, 0.28, 0.05, -0.18, gripZ + 0.17, SKIN_TONE, 0.46, -0.1, -0.05);
+  add(0.135, 0.135, 0.32, 0.1, -0.255, gripZ + 0.42, SKIN_TONE, 0.5, -0.16, -0.07);
 }
 
 function buildModel(id) {
@@ -118,10 +143,22 @@ export function createArsenal(camera) {
     models.set(id, model);
   }
 
+  // An eight-point additive star is the cheapest way to make a muzzle read as a burst of light
+  // rather than a paper diamond: a 16-segment circle whose vertices are pushed in and out
+  // alternately gives eight spikes, and additive blending supplies the glow with no texture at all.
+  const flashGeometry = new THREE.CircleGeometry(0.17, 16);
+  const flashRing = flashGeometry.attributes.position;
+  for (let index = 1; index < flashRing.count; index += 1) {
+    const angle = Math.atan2(flashRing.getY(index), flashRing.getX(index));
+    const radius = index % 2 === 1 ? 0.17 : 0.055;
+    flashRing.setXY(index, Math.cos(angle) * radius, Math.sin(angle) * radius);
+  }
+  flashRing.needsUpdate = true;
+  flashGeometry.computeBoundingSphere();
   const flash = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.13, 0.13),
+    flashGeometry,
     new THREE.MeshBasicMaterial({
-      color: new THREE.Color('#ffd9a0'), transparent: true, opacity: 0.85,
+      color: new THREE.Color('#fff0c8'), transparent: true, opacity: 0.95,
       depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
     }),
   );

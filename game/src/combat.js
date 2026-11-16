@@ -82,6 +82,25 @@ export function createCombat(scene) {
   }
   let sparkCursor = 0;
 
+  // A tracer is what makes a shot legible in a still frame and in play: it costs one stretched box
+  // and tells the player where the fire came from. Pooled exactly like the sparks so a burst never
+  // allocates, and every box carries its own material so one fading streak cannot dim another.
+  const tracerGeometry = new THREE.BoxGeometry(0.035, 0.035, 1);
+  const tracers = [];
+  for (let index = 0; index < 24; index += 1) {
+    const material = new THREE.MeshBasicMaterial({
+      color: new THREE.Color('#ffd9a0'),
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const mesh = new THREE.Mesh(tracerGeometry, material);
+    mesh.visible = false;
+    scene.add(mesh);
+    tracers.push({ mesh, material, life: 0 });
+  }
+  let tracerCursor = 0;
+
   function spawnSpark(x, y, z, nx, nz) {
     const spark = sparks[sparkCursor];
     sparkCursor = (sparkCursor + 1) % sparks.length;
@@ -104,6 +123,34 @@ export function createCombat(scene) {
       spark.vy -= 9 * dt;
       if (spark.life <= 0) spark.mesh.visible = false;
     }
+    // A tracer is a streak, not a beam: it lives a twentieth of a second and fades as it goes, so
+    // the eye reads the line of the shot and never a laser left hanging in the air.
+    for (let index = 0; index < tracers.length; index += 1) {
+      const tracer = tracers[index];
+      if (tracer.life <= 0) continue;
+      tracer.life -= dt;
+      if (tracer.life <= 0) {
+        tracer.life = 0;
+        tracer.mesh.visible = false;
+        continue;
+      }
+      tracer.material.opacity = tracer.life / 0.05;
+    }
+  }
+
+  // The pooled box is one unit long on its own z, so a whole tracer is a midpoint, a lookAt down the
+  // line and a z scale of the distance travelled — no geometry rebuild, no per-shot allocation.
+  function spawnTracer(fromX, fromY, fromZ, toX, toY, toZ) {
+    const tracer = tracers[tracerCursor];
+    tracerCursor = (tracerCursor + 1) % tracers.length;
+    const span = Math.hypot(toX - fromX, toY - fromY, toZ - fromZ);
+    tracer.mesh.position.set((fromX + toX) / 2, (fromY + toY) / 2, (fromZ + toZ) / 2);
+    tracer.mesh.lookAt(toX, toY, toZ);
+    tracer.mesh.scale.set(1, 1, Math.max(0.001, span));
+    tracer.material.opacity = 1;
+    tracer.mesh.visible = true;
+    tracer.life = 0.05;
+    return tracer.mesh;
   }
 
   // Distance falloff is linear to the weapon's own falloff range and then flat, so a shotgun is a
@@ -142,19 +189,29 @@ export function createCombat(scene) {
         z: origin.z + direction.z * body.distance,
       };
       spawnSpark(point.x, point.y, point.z, 0, 0);
+      spawnTracer(origin.x, origin.y, origin.z, point.x, point.y, point.z);
       const raw = damageAt(weapon, body.distance);
       const dealt = applyDamage(body.actor, raw, body.part, weapon, events);
       return { hit: true, actor: body.actor, part: body.part, damage: dealt, distance: body.distance, point };
     }
     if (wall.hit && wall.distance < weapon.range) {
-      spawnSpark(
-        origin.x + direction.x * wall.distance,
-        origin.y + direction.y * wall.distance,
-        origin.z + direction.z * wall.distance,
-        wall.normalX, wall.normalZ,
-      );
+      const impact = {
+        x: origin.x + direction.x * wall.distance,
+        y: origin.y + direction.y * wall.distance,
+        z: origin.z + direction.z * wall.distance,
+      };
+      spawnSpark(impact.x, impact.y, impact.z, wall.normalX, wall.normalZ);
+      spawnTracer(origin.x, origin.y, origin.z, impact.x, impact.y, impact.z);
       return { hit: false, distance: wall.distance };
     }
+    // Nothing in the way: the tracer still runs to the weapon's max range, so a miss is visible as
+    // a miss instead of as nothing happening at all.
+    spawnTracer(
+      origin.x, origin.y, origin.z,
+      origin.x + direction.x * weapon.range,
+      origin.y + direction.y * weapon.range,
+      origin.z + direction.z * weapon.range,
+    );
     return { hit: false, distance: weapon.range };
   }
 
@@ -179,5 +236,5 @@ export function createCombat(scene) {
     }
   }
 
-  return { fire, explode, stepSparks, traceActors, bodyBoxes };
+  return { fire, explode, stepSparks, traceActors, bodyBoxes, spawnTracer };
 }

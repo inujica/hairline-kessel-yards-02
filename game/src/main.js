@@ -43,9 +43,29 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.22;
 document.getElementById('game').appendChild(renderer.domElement);
 
+// A vertical dusk gradient behind everything. The sky dome covers almost every view, but if a view
+// ever misses it — a corner, a wide aspect, the debug view being toggled — the empty pixels still
+// read as dusk instead of flat slate.
+function duskBackdrop() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 2;
+  canvas.height = 256;
+  const context = canvas.getContext('2d');
+  const gradient = context.createLinearGradient(0, 0, 0, 256);
+  gradient.addColorStop(0, '#2a1b2e');
+  gradient.addColorStop(1, '#f2a35c');
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, 2, 256);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
 const scene = new THREE.Scene();
-scene.background = new THREE.Color('#232c36');
-const camera = new THREE.PerspectiveCamera(76, window.innerWidth / window.innerHeight, 0.04, 180);
+scene.background = duskBackdrop();
+// far is set past the 300m sky dome so the dome is never clipped; fog ends at 150, so nothing the
+// player can shoot at is affected by the extra depth range.
+const camera = new THREE.PerspectiveCamera(76, window.innerWidth / window.innerHeight, 0.04, 420);
 scene.add(camera);
 
 const map = createMap(scene);
@@ -492,8 +512,18 @@ function stageShot(name) {
     player.state.position.x = 0; player.state.position.y = 0; player.state.position.z = 44;
     player.state.yaw = 0;
     player.state.pitch = 0.02;
-    for (const bot of bots.bots) bot.mesh.visible = false;
-    for (const bot of bots.bots) bot.alive = false;
+    // A start screen still has to show a populated radar, because an empty minimap reads as broken
+    // rather than as pre-round. The bots are kept alive and visible and simply stood on their
+    // spawns — a loose group of vanguard on the attacker apron and a loose group of cordon down
+    // the yard — so the radar shows two clusters and the map reads as populated instead of dead.
+    const vanguardSpawns = [-3, 1, 5, 9, -7];
+    const cordonSpawns = [-4, 0, 4, 8, -8];
+    for (let index = 0; index < vanguard.length; index += 1) {
+      place(vanguard[index], vanguardSpawns[index % vanguardSpawns.length], 44, 0);
+    }
+    for (let index = 0; index < cordon.length; index += 1) {
+      place(cordon[index], cordonSpawns[index % cordonSpawns.length], -38, 3.1);
+    }
   } else if (name === 'buy') {
     round.state.phase = 'freeze';
     round.state.timer = 14;
@@ -536,16 +566,29 @@ function stageShot(name) {
     hud.feed('You → Warden · head');
     hud.feed('Kestrel → Pike · kessel');
     hud.feed('You → Dunn · kessel');
-    player.state.position.x = -27.2; player.state.position.y = 0; player.state.position.z = -19.4;
-    player.state.yaw = 0.30;
-    player.state.pitch = 0.02;
+    // The cover shot stands where a player would hold the long lane: enemies at range, sky and haze
+    // above the far wall, so the frame shows the map and not a wall. The vantage is open on purpose —
+    // a camera jammed into a corner can only ever photograph that corner. The lane itself is only
+    // eight metres wide between the two depot blocks, so the camera holds it from the open end of
+    // the yard instead of standing inside it, where the walls would fill both edges of the frame.
+    player.state.position.x = -20.4; player.state.position.y = 0; player.state.position.z = 40;
+    player.state.yaw = -0.10;
+    player.state.pitch = 0.10;
     arsenal.state.flashLeft = 0.0;
     arsenal.state.mag = 23;
-    place(vanguard[0], -32.6, -20.6, 1.1);
-    place(vanguard[1], -23.2, -22.4, 0.2);
-    place(cordon[0], -29.4, -24.9, 2.6);
-    place(cordon[1], -32.4, -27.4, 2.9);
-    place(cordon[2], -26.0, -27.9, 3.4);
+    // The staged tracer is a real tracer from the real pool, so the screenshot shows what the game
+    // actually draws: a burst leaving the muzzle and reaching for the cordon figure on the left flank.
+    arsenal.state.flashLeft = 0.045;
+    syncCamera();
+    const muzzle = camera.getWorldPosition(new THREE.Vector3());
+    combat.spawnTracer(muzzle.x, muzzle.y, muzzle.z, -28.5, 1.1, 25.0);
+    // Two vanguard figures and three cordon figures at 17 to 26 units, spread across the frame and
+    // all in clear line of sight, so they read as figures in depth instead of filling the frame.
+    place(vanguard[0], -22.6, 20.1, -3.03);
+    place(vanguard[1], -9.5, 26.9, 2.45);
+    place(cordon[0], -28.5, 25.0, -2.65);
+    place(cordon[1], -13.4, 18.1, 2.83);
+    place(cordon[2], -17.8, 14.1, 3.04);
     for (const bot of cordon.slice(3)) place(bot, 0, -20, 0, false);
   }
 

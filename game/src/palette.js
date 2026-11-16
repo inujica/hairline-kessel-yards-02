@@ -10,23 +10,25 @@ export const PALETTE = {
   accent: '#e8a33d',
 };
 
-// The map is a rail depot at dusk: cold concrete, warmer timber, and one hot accent that only
-// marks the objective. Teams read as two temperatures, not two bright colours.
+// The depot is lit at dusk, so every surface is warm: tan aggregate underfoot, cream plaster and
+// terracotta on the walls, sun-bleached timber and crate wood, one hot amber accent that only
+// marks the objective. Cold survives only in shadow and in the enemy team's silhouette — nothing
+// else in the yard is allowed to read as blue.
 export const MATERIALS = {
-  floor: '#3a3f47',
-  floorAlt: '#333840',
-  wall: '#4a5058',
-  wallAlt: '#3f454d',
-  timber: '#5b4a38',
-  crate: '#6b563f',
-  metal: '#59626d',
-  tank: '#4e5a63',
-  glass: '#7d8a94',
-  lamp: '#f2d9a8',
-  siteA: '#c98a3a',
-  siteB: '#a8642f',
-  vanguard: '#d9c48a',
-  cordon: '#8fa2b8',
+  floor: '#8a7a63',
+  floorAlt: '#6f6252',
+  wall: '#c9b394',
+  wallAlt: '#a8906f',
+  timber: '#6b4b32',
+  crate: '#a97f4e',
+  metal: '#5c5a54',
+  tank: '#7d7568',
+  glass: '#9fb0b8',
+  lamp: '#ffcf8a',
+  siteA: '#e08a2c',
+  siteB: '#b8562a',
+  vanguard: '#f0d79a',
+  cordon: '#7c93a8',
   blood: '#6d2a24',
 };
 
